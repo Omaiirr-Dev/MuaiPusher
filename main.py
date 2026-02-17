@@ -103,6 +103,7 @@ def refresh_schedule(force: bool = False) -> None:
         save_last_url(image_url)
         save_fetch_timestamp()
         print(f"Schedule merged: {len(merged_prayers)} days total ({new_data.get('week_label', '?')})")
+        send_schedule_summary(merged_prayers)
     except Exception as e:
         print(f"Failed to refresh schedule: {e}")
 
@@ -185,15 +186,10 @@ def sleep_until_midnight() -> None:
 
 def main() -> None:
     print("MuairPusher started.")
-    first_boot = not LAST_FETCH_FILE.exists()
-    refresh_schedule()
-    if first_boot and SCHEDULE_FILE.exists():
-        data = json.loads(SCHEDULE_FILE.read_text())
-        send_schedule_summary(data.get("prayers", []))
     while True:
+        refresh_schedule()  # Posts to muaibackend if new image detected
         run_day()
         sleep_until_midnight()
-        refresh_schedule()  # Only calls Gemini if 7 days have passed
 
 
 if __name__ == "__main__":

@@ -21,8 +21,8 @@ PRAYER_NAMES = {
 }
 
 
-def _post(title: str, body: str) -> None:
-    ntfy_url = os.environ["NTFY_URL"]
+def _post(title: str, body: str, url: str | None = None) -> None:
+    ntfy_url = url or os.environ["NTFY_URL"]
     requests.post(
         ntfy_url,
         data=body.encode("utf-8"),
@@ -33,6 +33,12 @@ def _post(title: str, body: str) -> None:
         },
         timeout=10,
     )
+
+
+def _backend_url() -> str:
+    """Derive the muaibackend ntfy URL from the main NTFY_URL."""
+    base = os.environ["NTFY_URL"].rsplit("/", 1)[0]
+    return f"{base}/muaibackend"
 
 
 def send_prayer_notification(
@@ -64,19 +70,34 @@ def send_prayer_notification(
 
 
 def send_schedule_summary(prayers: list) -> None:
-    """Send one notification listing every day's key times — fired once on first boot."""
+    """Post full parsed schedule to muaibackend whenever a new calendar is detected."""
     lines = []
     for p in prayers:
         date = p.get("date", "?")[-5:]  # MM-DD
-        day = (p.get("day") or "")[:3]  # Mon, Tue...
-        fajr = fmt_12h(p["fajr_start"]) if p.get("fajr_start") else "—"
-        maghrib = fmt_12h(p["maghrib_start"]) if p.get("maghrib_start") else "—"
-        isha = fmt_12h(p["isha_start"]) if p.get("isha_start") else "—"
-        lines.append(f"{date} {day}  Fajr {fajr}  Mghrb {maghrib}  Isha {isha}")
+        day = (p.get("day") or "")[:3]
+        fajr    = fmt_12h(p["fajr_start"])    if p.get("fajr_start")    else "—"
+        fajr_j  = fmt_12h(p["fajr_jamaat"])   if p.get("fajr_jamaat")   else "—"
+        sunrise = fmt_12h(p["sunrise"])        if p.get("sunrise")       else "—"
+        zuhr    = fmt_12h(p["zuhr_start"])     if p.get("zuhr_start")    else "—"
+        zuhr_j  = fmt_12h(p["zuhr_jamaat"])    if p.get("zuhr_jamaat")   else "—"
+        asr     = fmt_12h(p["asr_start"])      if p.get("asr_start")     else "—"
+        asr_j   = fmt_12h(p["asr_jamaat"])     if p.get("asr_jamaat")    else "—"
+        mghrb   = fmt_12h(p["maghrib_start"])  if p.get("maghrib_start") else "—"
+        mghrb_j = fmt_12h(p["maghrib_jamaat"]) if p.get("maghrib_jamaat") else "—"
+        isha    = fmt_12h(p["isha_start"])     if p.get("isha_start")    else "—"
+        isha_j  = fmt_12h(p["isha_jamaat"])    if p.get("isha_jamaat")   else "—"
+        lines.append(
+            f"{date} {day}\n"
+            f"  🕋 Fajr    {fajr} (J {fajr_j})  ☀️ Sunrise {sunrise}\n"
+            f"  ☀️ Zuhr    {zuhr} (J {zuhr_j})\n"
+            f"  ⛅ Asr     {asr} (J {asr_j})\n"
+            f"  🌅 Maghrib {mghrb} (J {mghrb_j})\n"
+            f"  🌙 Isha    {isha} (J {isha_j})"
+        )
 
-    body = "\n".join(lines)
-    _post(f"📅 Schedule loaded — {len(prayers)} days", body)
-    print(f"Sent: schedule summary ({len(prayers)} days)")
+    body = "\n\n".join(lines)
+    _post(f"📅 New schedule — {len(prayers)} days", body, url=_backend_url())
+    print(f"Sent to muaibackend: schedule summary ({len(prayers)} days)")
 
 
 def send_unavailable_notification() -> None:
