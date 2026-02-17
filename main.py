@@ -2,10 +2,10 @@
 MuairPusher — persistent worker.
 Runs continuously on Railway as a long-running service (not a cron job).
 Sleeps until each prayer start time, fires the notification, then sleeps until the next.
-Checks for a new calendar image once per day at midnight.
+Checks for a new calendar image every 7 days (mosque updates ~weekly).
 
 Env vars required:
-  OPENAI_API_KEY
+  GEMINI_API_KEY
   NTFY_URL
 """
 
@@ -32,7 +32,10 @@ UK_TZ = pytz.timezone("Europe/London")
 
 CALENDAR_IMAGE = pathlib.Path("calendar.jpg")
 LAST_URL_FILE = pathlib.Path("last_url.txt")
+LAST_FETCH_FILE = pathlib.Path("last_fetch.txt")
 SCHEDULE_FILE = pathlib.Path("schedule.json")
+
+REFRESH_INTERVAL_DAYS = 7
 
 PRAYERS = [
     ("fajr",    "fajr_start",    "fajr_jamaat"),
@@ -53,8 +56,24 @@ def save_last_url(url: str) -> None:
     LAST_URL_FILE.write_text(url)
 
 
-def refresh_schedule() -> None:
-    """Scrape the homepage and update schedule.json if the calendar image has changed."""
+def days_since_last_fetch() -> float:
+    if not LAST_FETCH_FILE.exists():
+        return float("inf")
+    last = datetime.fromisoformat(LAST_FETCH_FILE.read_text().strip())
+    return (datetime.now(UK_TZ) - last).total_seconds() / 86400
+
+
+def save_fetch_timestamp() -> None:
+    LAST_FETCH_FILE.write_text(datetime.now(UK_TZ).isoformat())
+
+
+def refresh_schedule(force: bool = False) -> None:
+    """Scrape the homepage and update schedule.json if due or URL changed."""
+    days = days_since_last_fetch()
+    if not force and days < REFRESH_INTERVAL_DAYS and SCHEDULE_FILE.exists():
+        print(f"Last fetch was {days:.1f} days ago — next check in {REFRESH_INTERVAL_DAYS - days:.1f} days.")
+        return
+
     try:
         image_url = get_calendar_image_url()
     except Exception as e:
@@ -62,11 +81,12 @@ def refresh_schedule() -> None:
         return
 
     last_url = load_last_url()
-    if image_url == last_url and SCHEDULE_FILE.exists():
-        print(f"Calendar unchanged, skipping Vision call.")
+    if image_url == last_url and SCHEDULE_FILE.exists() and not force:
+        print("Calendar URL unchanged, skipping Gemini call.")
+        save_fetch_timestamp()
         return
 
-    print(f"New/changed calendar URL: {image_url}")
+    print(f"Fetching new calendar: {image_url}")
     try:
         download_image(image_url, CALENDAR_IMAGE)
         new_data = extract_schedule(CALENDAR_IMAGE)
@@ -81,6 +101,7 @@ def refresh_schedule() -> None:
         merged = {"week_label": new_data.get("week_label", ""), "prayers": merged_prayers}
         SCHEDULE_FILE.write_text(json.dumps(merged, indent=2))
         save_last_url(image_url)
+        save_fetch_timestamp()
         print(f"Schedule merged: {len(merged_prayers)} days total ({new_data.get('week_label', '?')})")
     except Exception as e:
         print(f"Failed to refresh schedule: {e}")
@@ -165,10 +186,9 @@ def sleep_until_midnight() -> None:
 def main() -> None:
     print("MuairPusher started.")
     while True:
-        refresh_schedule()
+        refresh_schedule()  # Only calls Gemini if 7 days have passed
         run_day()
         sleep_until_midnight()
-        refresh_schedule()  # Check for new calendar at start of each new day
 
 
 if __name__ == "__main__":

@@ -2,5 +2,8 @@
 calendar.jpg
 schedule.json
 last_url.txt
+last_fetch.txt
 __pycache__/
 *.pyc
+preview.html
+preview_server.py

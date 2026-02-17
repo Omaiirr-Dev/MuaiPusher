@@ -2,12 +2,10 @@ import json
 import os
 import pathlib
 
-import pytesseract
-from PIL import Image
-from openai import OpenAI
+from google import genai
+from google.genai import types
 
-PARSE_PROMPT = """You are parsing raw OCR text extracted from an Islamic prayer timetable image.
-The text may contain noise, misaligned columns, or OCR errors — use context to correct them.
+PARSE_PROMPT = """You are parsing an Islamic prayer timetable image from a UK mosque.
 Return ONLY valid JSON with no extra text, no markdown code fences, no prose.
 
 Required structure:
@@ -33,59 +31,54 @@ Required structure:
 }
 
 Rules:
-- Extract EVERY day row in the text — do not stop early. Include all days visible.
+- Extract EVERY day row in the image — do not stop early. Include all days visible.
 - All times in 24-hour HH:MM format.
 - Dates in YYYY-MM-DD format. Infer the year and month from any header text visible.
 - If a Jamaat cell contains a ditto mark (" or '' or the word ditto) it means unchanged from the previous day — resolve it to the last known Jamaat time for that prayer.
 - Never output a ditto mark in the JSON — always output an actual time.
-- OCR text may have garbled characters — use surrounding context (column position, adjacent values) to infer correct times.
 - If no timetable can be found at all, return exactly: {"error": "not_found"}
 """
 
 
-def ocr_image(image_path: pathlib.Path) -> str:
-    """Run Tesseract OCR on the image and return raw extracted text."""
-    img = Image.open(image_path)
-    # Convert to grayscale to improve OCR accuracy on coloured timetable backgrounds
-    img = img.convert("L")
-    text = pytesseract.image_to_string(img, config="--psm 6")
-    return text
+def extract_schedule(image_path: pathlib.Path) -> dict:
+    """Send image directly to Gemini Vision and return parsed schedule dict."""
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
+    print("Sending image to Gemini 2.0 Flash Lite for parsing...")
+    img_bytes = image_path.read_bytes()
 
-def parse_text_to_schedule(ocr_text: str) -> dict:
-    """Send OCR text to GPT-4o-mini and return parsed schedule dict."""
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": PARSE_PROMPT},
-            {"role": "user", "content": ocr_text},
+    response = client.models.generate_content(
+        model="gemini-2.0-flash-lite",
+        contents=[
+            PARSE_PROMPT,
+            types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"),
         ],
-        max_tokens=8000,
+        config=types.GenerateContentConfig(max_output_tokens=8000),
     )
 
-    raw = response.choices[0].message.content.strip()
+    raw = response.text.strip()
+    print(f"Gemini raw response (first 300 chars):\n{raw[:300]}\n---")
 
     # Strip markdown code fences if model ignores instructions
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
+    raw = raw.strip()
 
     data = json.loads(raw)
 
     if "error" in data:
-        raise ValueError(f"Could not parse timetable from OCR text: {data['error']}")
+        raise ValueError(f"Could not parse timetable: {data['error']}")
+
+    # Carry forward any null jamaat values (Gemini sometimes returns null for ditto rows)
+    JAMAAT_FIELDS = ["fajr_jamaat", "zuhr_jamaat", "asr_jamaat", "maghrib_jamaat", "isha_jamaat"]
+    last_known = {}
+    for entry in data.get("prayers", []):
+        for field in JAMAAT_FIELDS:
+            if entry.get(field):
+                last_known[field] = entry[field]
+            elif field in last_known:
+                entry[field] = last_known[field]
 
     return data
-
-
-def extract_schedule(image_path: pathlib.Path) -> dict:
-    """Full pipeline: OCR image → parse text → return structured schedule."""
-    print("Running Tesseract OCR...")
-    ocr_text = ocr_image(image_path)
-    print(f"OCR output (first 500 chars):\n{ocr_text[:500]}\n---")
-
-    print("Sending OCR text to GPT-4o-mini for parsing...")
-    return parse_text_to_schedule(ocr_text)

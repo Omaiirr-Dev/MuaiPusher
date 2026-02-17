@@ -1,7 +1,6 @@
 requests
 beautifulsoup4
-openai
+google-genai
 pytz
 python-dotenv
-pytesseract
 Pillow
