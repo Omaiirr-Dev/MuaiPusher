@@ -70,11 +70,12 @@ def send_prayer_notification(
 
 
 def send_schedule_summary(prayers: list) -> None:
-    """Post full parsed schedule to muaibackend whenever a new calendar is detected."""
-    lines = []
-    for p in prayers:
+    """Post one notification per day to muaibackend whenever a new calendar is detected."""
+    url = _backend_url()
+    total = len(prayers)
+    for i, p in enumerate(prayers, 1):
         date = p.get("date", "?")[-5:]  # MM-DD
-        day = (p.get("day") or "")[:3]
+        day = (p.get("day") or "")
         fajr    = fmt_12h(p["fajr_start"])    if p.get("fajr_start")    else "—"
         fajr_j  = fmt_12h(p["fajr_jamaat"])   if p.get("fajr_jamaat")   else "—"
         sunrise = fmt_12h(p["sunrise"])        if p.get("sunrise")       else "—"
@@ -86,18 +87,16 @@ def send_schedule_summary(prayers: list) -> None:
         mghrb_j = fmt_12h(p["maghrib_jamaat"]) if p.get("maghrib_jamaat") else "—"
         isha    = fmt_12h(p["isha_start"])     if p.get("isha_start")    else "—"
         isha_j  = fmt_12h(p["isha_jamaat"])    if p.get("isha_jamaat")   else "—"
-        lines.append(
-            f"{date} {day}\n"
-            f"  🕋 Fajr    {fajr} (J {fajr_j})  ☀️ Sunrise {sunrise}\n"
-            f"  ☀️ Zuhr    {zuhr} (J {zuhr_j})\n"
-            f"  ⛅ Asr     {asr} (J {asr_j})\n"
-            f"  🌅 Maghrib {mghrb} (J {mghrb_j})\n"
-            f"  🌙 Isha    {isha} (J {isha_j})"
+        body = (
+            f"🕋 Fajr    {fajr} (J {fajr_j})\n"
+            f"🌄 Sunrise {sunrise}\n"
+            f"☀️ Zuhr    {zuhr} (J {zuhr_j})\n"
+            f"⛅ Asr     {asr} (J {asr_j})\n"
+            f"🌅 Maghrib {mghrb} (J {mghrb_j})\n"
+            f"🌙 Isha    {isha} (J {isha_j})"
         )
-
-    body = "\n\n".join(lines)
-    _post(f"📅 New schedule — {len(prayers)} days", body, url=_backend_url())
-    print(f"Sent to muaibackend: schedule summary ({len(prayers)} days)")
+        _post(f"📅 {date} {day} ({i}/{total})", body, url=url)
+    print(f"Sent to muaibackend: {total} daily notifications")
 
 
 def send_unavailable_notification() -> None:
