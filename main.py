@@ -69,10 +69,19 @@ def refresh_schedule() -> None:
     print(f"New/changed calendar URL: {image_url}")
     try:
         download_image(image_url, CALENDAR_IMAGE)
-        data = extract_schedule(CALENDAR_IMAGE)
-        SCHEDULE_FILE.write_text(json.dumps(data, indent=2))
+        new_data = extract_schedule(CALENDAR_IMAGE)
+
+        # Merge with existing schedule so old dates aren't lost mid-month
+        existing = json.loads(SCHEDULE_FILE.read_text()) if SCHEDULE_FILE.exists() else {"prayers": []}
+        existing_by_date = {e["date"]: e for e in existing.get("prayers", [])}
+        for entry in new_data.get("prayers", []):
+            existing_by_date[entry["date"]] = entry  # new entries overwrite, old ones kept
+        merged_prayers = sorted(existing_by_date.values(), key=lambda e: e["date"])
+
+        merged = {"week_label": new_data.get("week_label", ""), "prayers": merged_prayers}
+        SCHEDULE_FILE.write_text(json.dumps(merged, indent=2))
         save_last_url(image_url)
-        print(f"Schedule updated: {data.get('week_label', '?')}")
+        print(f"Schedule merged: {len(merged_prayers)} days total ({new_data.get('week_label', '?')})")
     except Exception as e:
         print(f"Failed to refresh schedule: {e}")
 
