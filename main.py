@@ -11,6 +11,7 @@ Env vars required:
 
 import json
 import pathlib
+import sys
 import time
 from datetime import datetime, timedelta
 
@@ -153,6 +154,42 @@ def sleep_until_midnight() -> None:
     sleep_until(tomorrow)
 
 
+def test_mode() -> None:
+    """Print today's full schedule and current UK time — no notifications sent, no sleeping."""
+    from schedule import fmt_12h, time_until
+
+    print("\n=== MuairPusher TEST MODE ===")
+    refresh_schedule()
+
+    today_entry = get_todays_prayers()
+    if not today_entry:
+        print("No schedule found for today.")
+        return
+
+    now = datetime.now(UK_TZ)
+    print(f"\nUK time now : {now.strftime('%A %d %b %Y  %H:%M:%S')}")
+    print(f"Schedule for: {today_entry['date']} ({today_entry.get('day', '')})\n")
+
+    print(f"{'Prayer':<10} {'Start':<10} {'Jamaat':<10} {'Until start'}")
+    print("-" * 45)
+
+    for prayer, start_field, jamaat_field in PRAYERS:
+        start = today_entry.get(start_field, "—")
+        jamaat = today_entry.get(jamaat_field, "—")
+        if start != "—":
+            until = time_until(start)
+            print(f"{prayer.capitalize():<10} {fmt_12h(start):<10} {fmt_12h(jamaat):<10} {until}")
+        else:
+            print(f"{prayer.capitalize():<10} {'—':<10} {'—':<10}")
+
+    sunrise = today_entry.get("sunrise")
+    if sunrise:
+        print(f"\nSunrise     : {fmt_12h(sunrise)}")
+
+    print("\nSchedule JSON snippet:")
+    print(json.dumps(today_entry, indent=2))
+
+
 def main() -> None:
     print("MuairPusher started.")
     while True:
@@ -163,4 +200,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    if "--test" in sys.argv:
+        test_mode()
+    else:
+        main()
