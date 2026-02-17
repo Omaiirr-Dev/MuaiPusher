@@ -63,6 +63,22 @@ def send_prayer_notification(
     print(f"Sent: {title}")
 
 
+def send_schedule_summary(prayers: list) -> None:
+    """Send one notification listing every day's key times — fired once on first boot."""
+    lines = []
+    for p in prayers:
+        date = p.get("date", "?")[-5:]  # MM-DD
+        day = (p.get("day") or "")[:3]  # Mon, Tue...
+        fajr = fmt_12h(p["fajr_start"]) if p.get("fajr_start") else "—"
+        maghrib = fmt_12h(p["maghrib_start"]) if p.get("maghrib_start") else "—"
+        isha = fmt_12h(p["isha_start"]) if p.get("isha_start") else "—"
+        lines.append(f"{date} {day}  Fajr {fajr}  Mghrb {maghrib}  Isha {isha}")
+
+    body = "\n".join(lines)
+    _post(f"📅 Schedule loaded — {len(prayers)} days", body)
+    print(f"Sent: schedule summary ({len(prayers)} days)")
+
+
 def send_unavailable_notification() -> None:
     _post(
         "⚠️ Prayer Schedule Unavailable",

@@ -23,7 +23,7 @@ try:
 except ImportError:
     pass
 
-from notifier import send_prayer_notification, send_unavailable_notification
+from notifier import send_prayer_notification, send_schedule_summary, send_unavailable_notification
 from schedule import get_todays_prayers
 from scraper import download_image, get_calendar_image_url
 from vision import extract_schedule
@@ -185,10 +185,15 @@ def sleep_until_midnight() -> None:
 
 def main() -> None:
     print("MuairPusher started.")
+    first_boot = not LAST_FETCH_FILE.exists()
+    refresh_schedule()
+    if first_boot and SCHEDULE_FILE.exists():
+        data = json.loads(SCHEDULE_FILE.read_text())
+        send_schedule_summary(data.get("prayers", []))
     while True:
-        refresh_schedule()  # Only calls Gemini if 7 days have passed
         run_day()
         sleep_until_midnight()
+        refresh_schedule()  # Only calls Gemini if 7 days have passed
 
 
 if __name__ == "__main__":
