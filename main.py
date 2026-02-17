@@ -1,7 +1,8 @@
 """
-MuairPusher — main orchestrator.
-Runs every 5 minutes via Railway cron (minimum interval allowed).
-Fires each prayer notification once, within 5 minutes of its start time.
+MuairPusher — persistent worker.
+Runs continuously on Railway as a long-running service (not a cron job).
+Sleeps until each prayer start time, fires the notification, then sleeps until the next.
+Checks for a new calendar image once per day at midnight.
 
 Env vars required:
   OPENAI_API_KEY
@@ -9,8 +10,8 @@ Env vars required:
 """
 
 import json
-import os
 import pathlib
+import time
 from datetime import datetime, timedelta
 
 import pytz
@@ -32,9 +33,7 @@ UK_TZ = pytz.timezone("Europe/London")
 CALENDAR_IMAGE = pathlib.Path("calendar.jpg")
 LAST_URL_FILE = pathlib.Path("last_url.txt")
 SCHEDULE_FILE = pathlib.Path("schedule.json")
-SENT_FILE = pathlib.Path("sent.json")
 
-# Prayer order with the field names in schedule.json
 PRAYERS = [
     ("fajr",    "fajr_start",    "fajr_jamaat"),
     ("zuhr",    "zuhr_start",    "zuhr_jamaat"),
@@ -54,29 +53,8 @@ def save_last_url(url: str) -> None:
     LAST_URL_FILE.write_text(url)
 
 
-def load_sent() -> dict:
-    if SENT_FILE.exists():
-        return json.loads(SENT_FILE.read_text())
-    return {}
-
-
-def save_sent(sent: dict) -> None:
-    SENT_FILE.write_text(json.dumps(sent))
-
-
-def mark_sent(date_str: str, prayer: str) -> None:
-    sent = load_sent()
-    sent.setdefault(date_str, [])
-    if prayer not in sent[date_str]:
-        sent[date_str].append(prayer)
-    save_sent(sent)
-
-
-def already_sent(date_str: str, prayer: str) -> bool:
-    return prayer in load_sent().get(date_str, [])
-
-
-def refresh_schedule_if_needed() -> None:
+def refresh_schedule() -> None:
+    """Scrape the homepage and update schedule.json if the calendar image has changed."""
     try:
         image_url = get_calendar_image_url()
     except Exception as e:
@@ -85,7 +63,7 @@ def refresh_schedule_if_needed() -> None:
 
     last_url = load_last_url()
     if image_url == last_url and SCHEDULE_FILE.exists():
-        print(f"Calendar unchanged ({image_url}), skipping Vision call.")
+        print(f"Calendar unchanged, skipping Vision call.")
         return
 
     print(f"New/changed calendar URL: {image_url}")
@@ -99,18 +77,35 @@ def refresh_schedule_if_needed() -> None:
         print(f"Failed to refresh schedule: {e}")
 
 
-def main() -> None:
-    refresh_schedule_if_needed()
+def prayer_dt_today(hhmm: str) -> datetime:
+    """Return a timezone-aware datetime for the given HH:MM today in UK time."""
+    now = datetime.now(UK_TZ)
+    h, m = map(int, hhmm.split(":"))
+    return now.replace(hour=h, minute=m, second=0, microsecond=0)
 
+
+def sleep_until(dt: datetime) -> None:
+    """Block until the given datetime, printing a countdown."""
+    now = datetime.now(UK_TZ)
+    seconds = (dt - now).total_seconds()
+    if seconds > 0:
+        print(f"Sleeping {seconds/3600:.2f}h until {dt.strftime('%H:%M')} UK time...")
+        time.sleep(seconds)
+
+
+def run_day() -> None:
+    """Handle all prayers for today, sleeping between each one."""
     today_entry = get_todays_prayers()
+
     if not today_entry:
-        print("No schedule entry for today — sending unavailable notification.")
+        print("No schedule for today — sending unavailable notification.")
         send_unavailable_notification()
+        # Retry in 30 minutes in case the mosque uploads the calendar later
+        time.sleep(30 * 60)
         return
 
-    today_str = today_entry["date"]
+    print(f"Schedule loaded for {today_entry['date']}")
     now = datetime.now(UK_TZ)
-    window_start = now - timedelta(minutes=5)
 
     for i, (prayer, start_field, jamaat_field) in enumerate(PRAYERS):
         start = today_entry.get(start_field)
@@ -119,14 +114,15 @@ def main() -> None:
         if not start or not jamaat:
             continue
 
-        # Check if this prayer's start time falls within the last 5 minutes
-        h, m = map(int, start.split(":"))
-        prayer_dt = now.replace(hour=h, minute=m, second=0, microsecond=0)
-        if not (window_start <= prayer_dt <= now):
+        prayer_time = prayer_dt_today(start)
+
+        # Skip prayers that have already passed today
+        if prayer_time < now:
+            print(f"Skipping {prayer} ({start}) — already passed.")
             continue
 
-        if already_sent(today_str, prayer):
-            continue
+        # Sleep precisely until this prayer's start time
+        sleep_until(prayer_time)
 
         # Determine next prayer
         next_prayer = None
@@ -148,9 +144,22 @@ def main() -> None:
             next_start=next_start,
             sunrise=sunrise,
         )
-        mark_sent(today_str, prayer)
 
-    print(f"Tick done at {current_hhmm} UK time.")
+
+def sleep_until_midnight() -> None:
+    """Sleep until just after UK midnight so we refresh for the new day."""
+    now = datetime.now(UK_TZ)
+    tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=1, second=0, microsecond=0)
+    sleep_until(tomorrow)
+
+
+def main() -> None:
+    print("MuairPusher started.")
+    while True:
+        refresh_schedule()
+        run_day()
+        sleep_until_midnight()
+        refresh_schedule()  # Check for new calendar at start of each new day
 
 
 if __name__ == "__main__":
