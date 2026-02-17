@@ -5,12 +5,12 @@ import pathlib
 
 from openai import OpenAI
 
-PROMPT = """You are extracting a weekly Islamic prayer timetable from an image.
+PROMPT = """You are extracting an Islamic prayer timetable from an image. It may cover a full month.
 Return ONLY valid JSON with no extra text, no markdown code fences, no prose.
 
 Required structure:
 {
-  "week_label": "17 Feb – 23 Feb 2026",
+  "week_label": "Sha'ban 1447 / Feb–Mar 2026",
   "prayers": [
     {
       "date": "2026-02-17",
@@ -31,9 +31,9 @@ Required structure:
 }
 
 Rules:
-- Include one entry per day shown in the image.
+- Extract EVERY row in the image — do not stop early. Include all days visible.
 - All times in 24-hour HH:MM format.
-- Dates in YYYY-MM-DD format.
+- Dates in YYYY-MM-DD format. Infer the year and month from the calendar header.
 - If you cannot find a timetable, return exactly: {"error": "not_found"}
 """
 
@@ -59,7 +59,7 @@ def extract_schedule(image_path: pathlib.Path) -> dict:
                 ],
             }
         ],
-        max_tokens=2000,
+        max_tokens=16000,
     )
 
     raw = response.choices[0].message.content.strip()
