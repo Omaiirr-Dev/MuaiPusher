@@ -1,0 +1,7 @@
+.env
+calendar.jpg
+schedule.json
+last_url.txt
+sent.json
+__pycache__/
+*.pyc
