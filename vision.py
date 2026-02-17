@@ -34,6 +34,8 @@ Rules:
 - Extract EVERY row in the image — do not stop early. Include all days visible.
 - All times in 24-hour HH:MM format.
 - Dates in YYYY-MM-DD format. Infer the year and month from the calendar header.
+- If a Jamaat cell contains a ditto mark (" or '' or ditto) it means the Jamaat time is unchanged from the previous day — use the last known Jamaat time for that prayer instead.
+- Never output a ditto mark in the JSON — always resolve it to an actual time.
 - If you cannot find a timetable, return exactly: {"error": "not_found"}
 """
 
