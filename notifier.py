@@ -59,9 +59,6 @@ def send_prayer_notification(
     else:
         lines.append("⏰ Next prayer time not yet available")
 
-    lines.append("")
-    lines.append("MADINATUL ULOOM")
-
     _post(title, "\n".join(lines))
     print(f"Sent: {title}")
 
@@ -69,6 +66,6 @@ def send_prayer_notification(
 def send_unavailable_notification() -> None:
     _post(
         "⚠️ Prayer Schedule Unavailable",
-        "No schedule found. Will retry next check.\n\nMADINATUL ULOOM",
+        "No schedule found. Will retry next check.",
     )
     print("Sent: schedule unavailable notification")
