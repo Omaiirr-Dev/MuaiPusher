@@ -1,6 +1,7 @@
 """
 MuairPusher — main orchestrator.
-Intended to run every minute via Railway cron.
+Runs every 5 minutes via Railway cron (minimum interval allowed).
+Fires each prayer notification once, within 5 minutes of its start time.
 
 Env vars required:
   OPENAI_API_KEY
@@ -10,7 +11,7 @@ Env vars required:
 import json
 import os
 import pathlib
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytz
 
@@ -109,7 +110,7 @@ def main() -> None:
 
     today_str = today_entry["date"]
     now = datetime.now(UK_TZ)
-    current_hhmm = now.strftime("%H:%M")
+    window_start = now - timedelta(minutes=5)
 
     for i, (prayer, start_field, jamaat_field) in enumerate(PRAYERS):
         start = today_entry.get(start_field)
@@ -118,7 +119,10 @@ def main() -> None:
         if not start or not jamaat:
             continue
 
-        if current_hhmm != start:
+        # Check if this prayer's start time falls within the last 5 minutes
+        h, m = map(int, start.split(":"))
+        prayer_dt = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        if not (window_start <= prayer_dt <= now):
             continue
 
         if already_sent(today_str, prayer):
